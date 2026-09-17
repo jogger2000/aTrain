@@ -1,0 +1,71 @@
+name: Build portable Windows ZIP
+
+# Manual build for the fork. The output is a ZIP which users can extract and
+# start by double-clicking aTrain.exe; Python is not required on their PC.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version label used in the ZIP filename"
+        required: true
+        default: "0.0.0-local"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install application runtime
+        shell: bash
+        run: uv sync --locked --extra gui --no-dev
+
+      - name: Install PyInstaller
+        shell: bash
+        run: uv pip install pyinstaller
+
+      - name: Build portable application
+        shell: bash
+        run: uv run --no-sync pyinstaller freeze.spec --noconfirm
+
+      - name: Add quick-start guide
+        shell: pwsh
+        run: |
+          @'
+          aTrain for Windows
+          ==================
+
+          1. Extract this ZIP completely to a folder of your choice.
+          2. Start aTrain.exe.
+          3. On the first run, aTrain downloads the selected speech-recognition model.
+
+          This portable package does not require a Python installation.
+          Windows may display a SmartScreen warning because this personal build is not code-signed.
+          The source code and license are available at:
+          https://github.com/jogger2000/aTrain
+          '@ | Set-Content -LiteralPath 'dist/aTrain/README-Windows.txt' -Encoding utf8
+
+      - name: Create ZIP
+        shell: pwsh
+        run: |
+          $name = "aTrain-${{ inputs.version }}-windows-portable.zip"
+          Compress-Archive -Path 'dist/aTrain/*' -DestinationPath $name -CompressionLevel Optimal
+          "ARCHIVE=$name" >> $env:GITHUB_ENV
+
+      - name: Publish downloadable ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: aTrain-${{ inputs.version }}-windows-portable
+          path: ${{ env.ARCHIVE }}
+          if-no-files-found: error
+          compression-level: 0

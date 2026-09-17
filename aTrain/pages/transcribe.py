@@ -35,6 +35,7 @@ async def page(client: Client):
                 "open_advanced_settings"
             )
             settings_btn.props("size=0.8rem unelevated no-caps icon=settings")
+
             async def start_selected():
                 if files.selected_paths:
                     await start_transcriptions_from_paths(files.selected_paths)

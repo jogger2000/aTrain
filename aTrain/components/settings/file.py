@@ -90,6 +90,7 @@ def input_file() -> FileSelection:
         file_uploader.props(f"accept='{allowed_files}'")
         selection.file_uploader = file_uploader
         file_button.bind_text(file_uploader, "file_text").bind_icon(file_uploader, "file_icon")
+
         def pick_file() -> None:
             selection.selection_kind = "file"
             file_uploader.pick_files()
@@ -200,7 +201,9 @@ def input_file() -> FileSelection:
         if not folder:
             return
         selection.selected_paths = transcribable_files(Path(folder))
-        file_label.text = f"{len(selection.selected_paths)} supported files in {Path(folder).name}"
+        file_label.text = (
+            f"{len(selection.selected_paths)} supported files in {Path(folder).name}"
+        )
         if not selection.selected_paths:
             ui.notify("No supported audio or video files found in this folder", color="negative")
 

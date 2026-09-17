@@ -5,16 +5,16 @@ from multiprocessing.managers import DictProxy
 from pathlib import Path
 from typing import cast
 
-from nicegui import ElementFilter, app, ui
+from nicegui import app, ui
 from nicegui.run import tear_down as stop_transcription
 
 GIF_PROCESS = cast(Path, files("aTrain") / "static" / "images" / "process.gif")
 
 
-def dialog_process(progress: DictProxy):
+def dialog_process(progress: DictProxy) -> tuple[ui.timer, ui.dialog]:
     state = app.storage.general
     start_time = datetime.now()
-    ui.timer(0.1, lambda: update_progress(progress, start_time)).mark("timer_process")
+    timer = ui.timer(0.1, lambda: update_progress(progress, start_time))
     with ui.dialog(value=True) as dialog, ui.card() as card:
         dialog.props("persistent").mark("dialog_process")
         card.classes("w-[500px] p-8 gap-3")
@@ -35,6 +35,7 @@ def dialog_process(progress: DictProxy):
                 ui.label("").bind_text_from(state, "time", lambda x: f"Time: {x}")
             btn_stop = ui.button("stop", color="dark").props("unelevated no-caps")
         btn_stop.on_click(stop_transcription)
+    return timer, dialog
 
 
 def update_progress(progress: DictProxy, start_time: datetime):
@@ -66,8 +67,8 @@ def update_time(start_time: datetime):
     state["time"] = f"{hours:02}:{minutes:02}:{seconds:02}"
 
 
-def close_dialog_process():
-    for timer in ElementFilter(marker="timer_process", kind=ui.timer):
-        timer.cancel()
-    for dialog in ElementFilter(marker="dialog_process", kind=ui.dialog):
-        dialog.delete()
+def close_dialog_process(process_dialog: tuple[ui.timer, ui.dialog]) -> None:
+    """Close exactly the progress UI created for the current transcription."""
+    timer, dialog = process_dialog
+    timer.cancel()
+    dialog.delete()

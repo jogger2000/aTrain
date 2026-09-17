@@ -37,6 +37,12 @@ class Settings:
     initial_prompt: str | None = None
     progress: dict | DictProxy = field(default_factory=dict)
     cpu_threads: int = 0
+    srt_only: bool = False
+    use_original_filename: bool = False
+    filename_prefix: str = ""
+    filename_suffix: str = ""
+    append_date: bool = False
+    output_dir: Path | None = None
 
 
 def check_inputs_transcribe(file, model, language, device):

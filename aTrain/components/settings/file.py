@@ -1,4 +1,6 @@
 import os
+from dataclasses import dataclass, field
+from pathlib import Path
 
 from aTrain_core.globals import FLATPAK, LINUX
 from aTrain_core.settings import load_formats
@@ -6,8 +8,9 @@ from nicegui import ui
 
 
 class CustomUpload(ui.upload):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, selection_kind: str = "file", *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.selection_kind = selection_kind
         self.on("added", self.set_added)
         self.set_select()
 
@@ -20,42 +23,105 @@ class CustomUpload(ui.upload):
         self.run_method("upload")
 
     def set_added(self):
-        self.file_text = "1 File Added"
-        self.file_icon = "file_present"
+        self.file_text = "File added" if self.selection_kind == "file" else "Folder selected"
+        self.file_icon = "file_present" if self.selection_kind == "file" else "folder"
 
     def set_select(self):
-        self.file_text = "Select File"
-        self.file_icon = "attach_file"
+        self.file_text = "Select File" if self.selection_kind == "file" else "Select Folder"
+        self.file_icon = "attach_file" if self.selection_kind == "file" else "folder_open"
 
 
-def input_file() -> CustomUpload:
+@dataclass
+class FileSelection:
+    file_uploader: CustomUpload | None = None
+    folder_uploader: CustomUpload | None = None
+    selected_paths: list[Path] = field(default_factory=list)
+    selection_kind: str | None = None
+
+    def upload(self) -> None:
+        if self.selection_kind == "file" and self.file_uploader:
+            self.file_uploader.upload()
+        elif self.selection_kind == "folder" and self.folder_uploader:
+            self.folder_uploader.upload()
+        else:
+            ui.notify("Please select a file or folder first", color="negative")
+
+
+def transcribable_files(folder: Path) -> list[Path]:
+    """Return only files which actually contain an audio stream.
+
+    The upstream format list also contains subtitle formats such as `.srt`.
+    Checking the container prevents a previously generated transcript in the
+    same input/output folder from being submitted as a new transcription.
+    """
+    import av
+
+    allowed_extensions = {extension.lower() for extension in load_formats()}
+    files: list[Path] = []
+    for path in folder.iterdir():
+        if not path.is_file() or path.suffix.lower() not in allowed_extensions:
+            continue
+        try:
+            with av.open(path) as container:
+                if any(stream.type == "audio" for stream in container.streams):
+                    files.append(path)
+        except av.FFmpegError:
+            continue
+    return sorted(files)
+
+
+def input_file() -> FileSelection:
     allowed_files = "".join(x for x in str(load_formats()) if x not in "[]'")
-    uploader = CustomUpload().classes("hidden")
-    uploader.props(f"accept='{allowed_files}'")
+    selection = FileSelection()
 
     with ui.column().classes("gap-2") as file_column:
-        ui.label("Select File").classes("font-bold text-dark text-md")
+        ui.label("Select Audio").classes("font-bold text-dark text-md")
         ui.separator()
-        with ui.button() as select_button:
-            select_button.props("color=gray-100 text-color=dark align=left")
-            select_button.props("unelevated no-caps :ripple=false")
-            select_button.classes("w-full h-full")
+        with ui.row().classes("w-full gap-2"):
+            file_button = ui.button().props("color=gray-100 text-color=dark align=left")
+            file_button.props("unelevated no-caps :ripple=false").classes("flex-1")
+            folder_button = ui.button("Select Folder").props(
+                "color=gray-100 text-color=dark align=left"
+            )
+            folder_button.props("unelevated no-caps :ripple=false").classes("flex-1")
 
     if not (FLATPAK or LINUX):
-        select_button.bind_text(uploader, "file_text")
-        select_button.bind_icon(uploader, "file_icon")
-        select_button.on_click(uploader.pick_files)
-        return uploader
+        file_uploader = CustomUpload("file").classes("hidden")
+        file_uploader.props(f"accept='{allowed_files}'")
+        selection.file_uploader = file_uploader
+        file_button.bind_text(file_uploader, "file_text").bind_icon(file_uploader, "file_icon")
+        def pick_file() -> None:
+            selection.selection_kind = "file"
+            file_uploader.pick_files()
+
+        def pick_folder() -> None:
+            selection.selection_kind = "folder"
+            try:
+                from tkinter import Tk, filedialog
+
+                root = Tk()
+                root.withdraw()
+                root.attributes("-topmost", True)
+                folder = filedialog.askdirectory(title="Select Folder")
+                root.destroy()
+            except Exception as exc:
+                ui.notify(f"Could not open folder picker: {exc}", color="negative")
+                return
+            if not folder:
+                return
+            selection.selected_paths = transcribable_files(Path(folder))
+            folder_button.text = f"{len(selection.selected_paths)} files selected"
+            if not selection.selected_paths:
+                ui.notify("No supported audio or video files found in this folder", color="negative")
+
+        file_button.on_click(pick_file)
+        folder_button.on_click(pick_folder)
+        return selection
 
     with file_column:
-        file_label = ui.label("No file selected").classes("text-sm text-gray-500")
+        file_label = ui.label("No file or folder selected").classes("text-sm text-gray-500")
 
-    uploader.selected_content = None
-    uploader.selected_name = None
-    uploader.selected_path = None
-    select_button.text = "Select File"
-
-    def pick_file_native() -> str | None:
+    def pick_file_native(directory: bool = False) -> str | None:
         try:
             import gi  # type: ignore
 
@@ -78,12 +144,14 @@ def input_file() -> CustomUpload:
             options = {
                 "handle_token": GLib.Variant("s", token),
                 "multiple": GLib.Variant("b", False),
-                "directory": GLib.Variant("b", False),
+                "directory": GLib.Variant("b", directory),
             }
 
             result = proxy.call_sync(
                 "OpenFile",
-                GLib.Variant("(ssa{sv})", ("", "Select File", options)),
+                GLib.Variant(
+                    "(ssa{sv})", ("", "Select Folder" if directory else "Select File", options)
+                ),
                 Gio.DBusCallFlags.NONE,
                 -1,
                 None,
@@ -120,14 +188,24 @@ def input_file() -> CustomUpload:
             print(f"Flatpak portal file dialog failed: {exc}")
             return None
 
-    def on_pick():
+    def on_pick_file():
         path = pick_file_native()
         if not path:
             return
-        uploader.selected_path = path
-        uploader.selected_name = os.path.basename(path)
-        file_label.text = uploader.selected_name
+        selection.selected_paths = [Path(path)]
+        file_label.text = Path(path).name
 
-    select_button.on_click(on_pick)
+    def on_pick_folder():
+        folder = pick_file_native(directory=True)
+        if not folder:
+            return
+        selection.selected_paths = transcribable_files(Path(folder))
+        file_label.text = f"{len(selection.selected_paths)} supported files in {Path(folder).name}"
+        if not selection.selected_paths:
+            ui.notify("No supported audio or video files found in this folder", color="negative")
 
-    return uploader
+    file_button.text = "Select File"
+    folder_button.text = "Select Folder"
+    file_button.on_click(on_pick_file)
+    folder_button.on_click(on_pick_folder)
+    return selection

@@ -113,7 +113,9 @@ def input_file() -> FileSelection:
             selection.selected_paths = transcribable_files(Path(folder))
             folder_button.text = f"{len(selection.selected_paths)} files selected"
             if not selection.selected_paths:
-                ui.notify("No supported audio or video files found in this folder", color="negative")
+                ui.notify(
+                    "No supported audio or video files found in this folder", color="negative"
+                )
 
         file_button.on_click(pick_file)
         folder_button.on_click(pick_folder)
@@ -201,9 +203,7 @@ def input_file() -> FileSelection:
         if not folder:
             return
         selection.selected_paths = transcribable_files(Path(folder))
-        file_label.text = (
-            f"{len(selection.selected_paths)} supported files in {Path(folder).name}"
-        )
+        file_label.text = f"{len(selection.selected_paths)} supported files in {Path(folder).name}"
         if not selection.selected_paths:
             ui.notify("No supported audio or video files found in this folder", color="negative")
 

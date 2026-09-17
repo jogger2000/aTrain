@@ -86,7 +86,7 @@ def transcribe(settings: Settings):
         transcript = run_transcription(settings, model_path, audio_array)
     if settings.speaker_detection and transcript:
         transcript = run_speaker_detection(settings, audio_duration, audio_array, transcript)
-    create_output_files(transcript, settings.speaker_detection, settings.file_id)
+    create_output_files(transcript, settings)
     write_logfile("No speaker detection. Created output files", settings.file_id)
     add_processing_time_to_metadata(settings.file_id)
     write_logfile("Processing time added to metadata", settings.file_id)
@@ -100,10 +100,17 @@ def load_audio(settings: Settings) -> tuple[np.ndarray, int]:
         else:
             file = settings.file
         audio_array = decode_audio(file, sampling_rate=SAMPLING_RATE)
+    except IndexError as e:
+        write_logfile(f"No readable audio stream: {e}", settings.file_id)
+        raise ValueError(
+            "No readable audio stream was found in this file. "
+            "Choose an audio/video file with a sound track."
+        ) from e
     except Exception as e:
         write_logfile(f"File or path invalid: {e}", settings.file_id)
-        raise Exception("""Check file & path: File either has no audio or the name of the file path or file includes spaces.
-                        Please remove or exchange them with underscores.""")
+        raise ValueError(
+            "Could not read this audio file. It may be damaged, unsupported, or contain no sound track."
+        ) from e
     write_logfile("Audio file loaded and decoded", settings.file_id)
     audio_duration = int(len(audio_array) / SAMPLING_RATE)
     write_logfile("Audio duration calculated", settings.file_id)

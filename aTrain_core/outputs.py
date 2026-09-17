@@ -4,6 +4,7 @@ import shutil
 import time
 from dataclasses import asdict, is_dataclass
 from datetime import datetime
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -40,45 +41,103 @@ def create_file_id(file_path, timestamp):
     return file_id
 
 
-def create_output_files(result, speaker_detection, file_id):
+def create_output_files(result, settings: Settings):
     """Creates output files based on the transcription result."""
-    create_json_file(result, file_id)
+    file_id = settings.file_id
+    speaker_detection = settings.speaker_detection
+    filename_stem = create_output_stem(settings)
+    output_directory = Path(settings.output_dir or Path(TRANSCRIPT_DIR) / file_id)
+    output_directory.mkdir(parents=True, exist_ok=True)
+    if settings.srt_only:
+        create_srt_file(result, output_directory, filename_stem)
+        return
+    create_json_file(result, output_directory, filename_stem)
     create_txt_file(
-        result, file_id, speaker_detection, maxqda=False, timestamps=False, brackets=True
+        result,
+        output_directory,
+        speaker_detection,
+        maxqda=False,
+        timestamps=False,
+        brackets=True,
+        filename_stem=filename_stem,
     )
     create_txt_file(
-        result, file_id, speaker_detection, maxqda=False, timestamps=True, brackets=True
+        result,
+        output_directory,
+        speaker_detection,
+        maxqda=False,
+        timestamps=True,
+        brackets=True,
+        filename_stem=filename_stem,
     )
     create_txt_file(
-        result, file_id, speaker_detection, maxqda=False, timestamps=True, brackets=False
+        result,
+        output_directory,
+        speaker_detection,
+        maxqda=False,
+        timestamps=True,
+        brackets=False,
+        filename_stem=filename_stem,
     )  # NEW: NVivo output format
-    create_txt_file(result, file_id, speaker_detection, maxqda=True, timestamps=True, brackets=True)
-    create_srt_file(result, file_id)
+    create_txt_file(
+        result,
+        output_directory,
+        speaker_detection,
+        maxqda=True,
+        timestamps=True,
+        brackets=True,
+        filename_stem=filename_stem,
+    )
+    create_srt_file(result, output_directory, filename_stem)
 
 
-def create_json_file(result, file_id):
+def create_output_stem(settings: Settings) -> str:
+    """Build a readable export name without changing the archive directory."""
+    stem = os.path.splitext(os.path.basename(settings.file_name))[0]
+    base_name = stem if settings.use_original_filename else "transcription"
+    parts = [settings.filename_prefix.strip(), base_name]
+    if settings.filename_suffix.strip():
+        parts.append(settings.filename_suffix.strip())
+    if settings.append_date:
+        date = datetime.strptime(settings.timestamp, TIMESTAMP_FORMAT).strftime("%Y-%m-%d")
+        parts.append(date)
+    # A prefix is user supplied; prevent it from creating subdirectories or an
+    # invalid Windows filename. The source filename itself already came from a
+    # valid file selected by the operating system.
+    return "_".join(part.replace("/", "-").replace("\\", "-") for part in parts if part)
+
+
+def create_json_file(result, output_directory: Path, filename_stem):
     """Creates a JSON file for the transcription result."""
-    output_file_text = os.path.join(TRANSCRIPT_DIR, file_id, "transcription.json")
+    output_file_text = output_directory / f"{filename_stem}.json"
     with open(output_file_text, "w", encoding="utf-8") as json_file:
         json.dump(result, json_file, ensure_ascii=False)
 
 
-def create_txt_file(result, file_id, speaker_detection, timestamps, maxqda, brackets=True):
+def create_txt_file(
+    result,
+    output_directory: Path,
+    speaker_detection,
+    timestamps,
+    maxqda,
+    brackets=True,
+    filename_stem="transcription",
+):
     """Creates a TXT file for the transcription result."""
     segments = result["segments"]
     match maxqda, timestamps, brackets:
         case True, _, _:
-            filename = "transcription_maxqda.txt"
+            filename = f"{filename_stem}_maxqda.txt"
         case False, True, False:
-            filename = "transcription_nvivo.txt"  # NVivo format: timestamps without brackets
+            filename = f"{filename_stem}_nvivo.txt"  # NVivo format: timestamps without brackets
         case False, True, True:
-            filename = "transcription_timestamps.txt"
+            filename = f"{filename_stem}_timestamps.txt"
         case False, False, _:
-            filename = "transcription.txt"
-    file_path = os.path.join(TRANSCRIPT_DIR, file_id, filename)
+            filename = f"{filename_stem}.txt"
+    file_path = output_directory / filename
     with open(file_path, "w", encoding="utf-8") as file:
         headline = (
-            f"Transcription for {file_id}"
+            f"Transcription for {filename_stem}"
             + ("" if maxqda and speaker_detection else "\n")
             + ("" if speaker_detection else "\n")
         )
@@ -96,11 +155,11 @@ def create_txt_file(result, file_id, speaker_detection, timestamps, maxqda, brac
             file.write(text + (" " if maxqda else "\n"))
 
 
-def create_srt_file(result, file_id):
+def create_srt_file(result, output_directory: Path, filename_stem="transcription"):
     """Creates a SRT file for the transcription result."""
 
     segments = result["segments"]
-    file_path = os.path.join(TRANSCRIPT_DIR, file_id, "transcription.srt")
+    file_path = output_directory / f"{filename_stem}.srt"
     with open(file_path, "w", encoding="utf-8") as srt_file:
         for index, segment in enumerate(segments, 1):
             srt_file.write(f"{index}\n")
@@ -172,6 +231,12 @@ def create_metadata(settings: Settings, audio_duration: int):
         "device": settings.device.value,
         "compute_type": settings.compute_type.value,
         "timestamp": settings.timestamp,
+        "srt_only": settings.srt_only,
+        "use_original_filename": settings.use_original_filename,
+        "filename_prefix": settings.filename_prefix,
+        "filename_suffix": settings.filename_suffix,
+        "append_date": settings.append_date,
+        "output_dir": str(settings.output_dir) if settings.output_dir else None,
     }
     with open(metadata_file_path, "w", encoding="utf-8") as metadata_file:
         yaml.dump(metadata, metadata_file)

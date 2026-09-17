@@ -26,6 +26,11 @@ class State(TypedDict):
     temperature_override: float | None
     initial_prompt: str | None
     cpu_threads: int
+    srt_only: bool
+    use_original_filename: bool
+    filename_prefix: str
+    filename_suffix: str
+    append_date: bool
 
 
 @dataclass(slots=True)
@@ -43,6 +48,7 @@ class UploadPayload:
     name: str
     upload: ui.upload.FileUpload | None = None
     path: Path | None = None
+    output_dir: Path | None = None
 
     async def materialise(self, directory: Path, filename: str) -> Path:
         """Return a path the engine can read, staging the upload if needed."""
@@ -62,17 +68,47 @@ async def start_transcription(file: events.UploadEventArguments):
 
 async def start_transcription_from_path(path: Path, name: str):
     """Entry point for the native file picker (Linux/Flatpak path)."""
-    await run_pipeline(UploadPayload(name=name, path=path))
+    await run_pipeline(UploadPayload(name=name, path=path, output_dir=path.parent))
 
 
-async def run_pipeline(payload: UploadPayload):
+async def start_transcriptions_from_paths(paths: list[Path]) -> None:
+    """Process a selected folder sequentially without blocking on each result dialog."""
+    completed = 0
+    for path in paths:
+        payload = UploadPayload(name=path.name, path=path, output_dir=path.parent)
+        if await run_pipeline(payload, show_finished=False):
+            completed += 1
+    color = "positive" if completed == len(paths) else "warning"
+    ui.notify(f"Finished transcribing {completed} of {len(paths)} files", color=color)
+
+
+class TranscriptionQueue:
+    """Serialize browser folder uploads while the browser sends files one by one."""
+
+    def __init__(self) -> None:
+        self._pending: list[UploadPayload] = []
+        self._running = False
+
+    async def enqueue(self, file: events.UploadEventArguments) -> None:
+        self._pending.append(UploadPayload(name=file.file.name, upload=file.file))
+        if self._running:
+            return
+        self._running = True
+        try:
+            while self._pending:
+                await run_pipeline(self._pending.pop(0))
+        finally:
+            self._running = False
+
+
+async def run_pipeline(payload: UploadPayload, show_finished: bool = True) -> bool:
     # Lazy import for improved startup speed
     from aTrain_core.transcribe import prepare_transcription, transcribe
 
     file_id: str | None = None
     with Manager() as manager, TemporaryDirectory() as tmp_dir:
         progress = manager.dict({"task": "Prepare", "current": 0, "total": 999999})
-        dialog_process(progress)
+        process_dialog = dialog_process(progress)
         # Snapshot rather than read live: the page re-renders while the upload is
         # staged, and `get_model_options` resets `model` to None whenever no model
         # is on disk yet. Reading through to the live storage would also let a user
@@ -100,23 +136,34 @@ async def run_pipeline(payload: UploadPayload):
                 temperature=state.get("temperature_override"),
                 initial_prompt=state.get("initial_prompt") or None,
                 cpu_threads=int(state.get("cpu_threads", 0)) or 0,
+                srt_only=state.get("srt_only", False),
+                use_original_filename=state.get("use_original_filename", True),
+                filename_prefix=state.get("filename_prefix", ""),
+                filename_suffix=state.get("filename_suffix", ""),
+                append_date=state.get("append_date", False),
+                output_dir=payload.output_dir,
                 progress=progress,
             )
             await run.cpu_bound(transcribe, settings=settings)
-            close_dialog_process()
-            dialog_finished(file_id)
+            close_dialog_process(process_dialog)
+            if show_finished:
+                dialog_finished(file_id)
+            return True
 
         except BrokenProcessPool:
             if file_id is not None:
                 delete_transcription(file_id)
             setup_process_pool()
-            close_dialog_process()
+            close_dialog_process(process_dialog)
             ui.navigate.reload()
+            return False
 
         except SubprocessException as e:
-            close_dialog_process()
+            close_dialog_process(process_dialog)
             dialog_error(error=e.original_message, traceback=e.original_traceback)
+            return False
 
         except Exception as e:
-            close_dialog_process()
+            close_dialog_process(process_dialog)
             dialog_error(error=str(e), traceback=traceback.format_exc())
+            return False

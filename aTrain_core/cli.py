@@ -26,6 +26,11 @@ DEVICE_HELP = "Hardware used to transcribe"
 COMPUTE_HELP = "Data type used in computations"
 TEMP_HELP = "Temperature used for sampling"
 CPU_THREADS_HELP = f"Number of CPU threads to use (0 = auto, default is {DEFAULT_CPU_THREADS}). Only applies when using CPU."
+SRT_ONLY_HELP = "Create only an SRT subtitle file"
+ORIGINAL_FILENAME_HELP = "Use the source filename for exported files"
+PREFIX_HELP = "Optional prefix for exported filenames"
+SUFFIX_HELP = "Optional suffix for exported filenames"
+DATE_SUFFIX_HELP = "Append the transcription date to exported filenames"
 
 FINISHED_TEXT = """Thank you for using aTrain
 If you use aTrain in a scientific publication, please cite our paper:
@@ -50,6 +55,11 @@ def transcribe(
     cpu_threads: Annotated[
         int, Option(help=CPU_THREADS_HELP, min=0, max=MAX_CPU_THREADS)
     ] = DEFAULT_CPU_THREADS,
+    srt_only: Annotated[bool, Option(help=SRT_ONLY_HELP)] = False,
+    original_filename: Annotated[bool, Option(help=ORIGINAL_FILENAME_HELP)] = False,
+    prefix: Annotated[str, Option(help=PREFIX_HELP)] = "",
+    suffix: Annotated[str, Option(help=SUFFIX_HELP)] = "",
+    date_suffix: Annotated[bool, Option(help=DATE_SUFFIX_HELP)] = False,
 ):
     """Start transcription process for an audio file"""
     file, file_id, timestamp = prepare_transcription(file=file)
@@ -69,6 +79,11 @@ def transcribe(
             temperature=temperature,
             initial_prompt=prompt,
             cpu_threads=cpu_threads,
+            srt_only=srt_only,
+            use_original_filename=original_filename,
+            filename_prefix=prefix,
+            filename_suffix=suffix,
+            append_date=date_suffix,
         )
         _transcribe(settings)
         print(FINISHED_TEXT)

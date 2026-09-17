@@ -1,5 +1,10 @@
 from pathlib import Path
 
+import pytest
+
+# The lean CI unit-test environment deliberately omits the numerical runtime.
+pytest.importorskip("numpy")
+
 from aTrain_core import outputs
 from aTrain_core.settings import ComputeType, Device, Settings
 

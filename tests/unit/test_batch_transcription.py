@@ -1,6 +1,11 @@
 import asyncio
 from pathlib import Path
 
+import pytest
+
+# The lean CI unit-test environment deliberately omits GUI dependencies.
+pytest.importorskip("nicegui")
+
 from aTrain.utils import transcription
 
 

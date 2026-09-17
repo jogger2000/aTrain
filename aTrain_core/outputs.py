@@ -137,7 +137,7 @@ def create_txt_file(
     file_path = output_directory / filename
     with open(file_path, "w", encoding="utf-8") as file:
         headline = (
-            f"Transcription for {file_id}"
+            f"Transcription for {filename_stem}"
             + ("" if maxqda and speaker_detection else "\n")
             + ("" if speaker_detection else "\n")
         )

@@ -1,6 +1,11 @@
 import sys
 from types import SimpleNamespace
 
+import pytest
+
+# Folder selection is a GUI component and is covered in full app environments.
+pytest.importorskip("nicegui")
+
 from aTrain.components.settings.file import transcribable_files
 
 
